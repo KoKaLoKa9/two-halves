@@ -54,8 +54,18 @@ p{margin:0}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-.amb{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:25;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:6px 16px 6px 12px;border-radius:999px;border:2px solid var(--ink);background:var(--surface);color:var(--ink);font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(20,28,36,.12)}
-.amb[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.gear{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:25;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:6px 16px 6px 12px;border-radius:999px;border:2px solid var(--ink);background:var(--surface);color:var(--ink);font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(20,28,36,.12)}
+.setscrim{position:fixed;inset:0;background:rgba(20,28,36,.45);z-index:30;display:flex;align-items:center;justify-content:center;padding:20px}
+.setpanel{width:min(520px,100%);max-height:calc(100vh - 40px);overflow:auto;background:var(--surface);color:var(--ink);border:3px solid var(--ink);border-radius:24px;padding:22px 24px;display:flex;flex-direction:column;gap:6px}
+.setrow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-top:1px solid var(--line)}
+.setrow b{display:block}.setrow span{color:var(--muted);font-size:15px}
+.sw{flex-shrink:0;width:60px;height:34px;border-radius:999px;border:2px solid var(--ink);background:var(--surface2);position:relative;padding:0}
+.sw::after{content:'';position:absolute;top:3px;left:3px;width:24px;height:24px;border-radius:999px;background:var(--muted);transition:left .2s}
+.sw[aria-checked="true"]{background:var(--ink)}.sw[aria-checked="true"]::after{left:29px;background:var(--bg)}
+.seg{display:flex;border:2px solid var(--ink);border-radius:999px;overflow:hidden;flex-shrink:0}
+.seg button{border:0;background:transparent;min-height:40px;padding:0 14px;font-weight:700;font-size:14px}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.calm .sw::after{transition:none}
 
 /* home */
 .hero{position:relative;overflow:hidden;border-radius:28px;margin-top:8px}
@@ -401,16 +411,25 @@ function render(){
   else if(S.view==='guide')h=guideView();
   if(S.overlay)h+=overlayView();
   if(S.toast)h+=`<div class="toast card" role="status" style="padding:18px 22px;border:3px solid var(--p2);display:flex;flex-direction:column;gap:10px"><b style="font-family:var(--display);font-size:22px">${esc(S.toast.title)}</b><div class="muted">${S.toast.body}</div><div class="row" style="justify-content:flex-end"><button class="btn small" data-a="toast-close">Try again</button></div></div>`;
-  h+=`<button class="amb" data-a="set" data-k="ambient" aria-pressed="${!!S.settings.ambient}">${ico(S.settings.ambient?'<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>':'<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M17 9l5 6M22 9l-5 6"/>',20)}Ambient sound: ${S.settings.ambient?'On':'Off'}</button>`;
+  h+=`<button class="gear" data-a="settings-open" aria-haspopup="dialog">${ico('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>',20)}Settings</button>`;
+  if(S.settingsOpen)h+=settingsPanel();
   app.innerHTML=h;
   const f=app.querySelector('[data-focus]');if(f)f.focus();
   updateAmbient();
 }
 
-function settingsRow(){
-  const t=(k,label)=>`<button class="toggle" aria-pressed="${!!S.settings[k]}" data-a="set" data-k="${k}">${S.settings[k]?ico(CHECK,18,2.6):''}${label}</button>`;
-  const th=S.settings.theme;
-  return `<div class="card settings"><b style="margin-right:6px">Comfort settings</b>${t('sound','Soft sounds')}${t('ambient','Ambient sound')}${t('calm','Calm motion')}${t('pattern','Color letters on vines')}<button class="toggle" data-a="theme">Theme: ${th==='auto'?'Auto':th==='light'?'Light':'Dark'}</button><span class="muted">No timer. No game over.</span></div>`;
+function settingsPanel(){
+  const row=(k,label,desc)=>`<div class="setrow"><div><b>${label}</b><span>${desc}</span></div><button class="sw" role="switch" aria-checked="${!!S.settings[k]}" aria-label="${label}" data-a="set" data-k="${k}"></button></div>`;
+  const th=S.settings.theme,seg=(v,l)=>`<button aria-pressed="${th===v}" data-a="theme" data-v="${v}">${l}</button>`;
+  return `<div class="setscrim" data-a="settings-close-bg"><div class="setpanel" role="dialog" aria-modal="true" aria-labelledby="setttl">
+   <div style="display:flex;justify-content:space-between;align-items:center;gap:12px"><h2 id="setttl" style="font-size:28px">Settings</h2><button class="btn small" data-a="settings-close" data-focus>Done</button></div>
+   <p class="muted" style="margin-bottom:6px">Change these anytime. No timer. No game over.</p>
+   ${row('sound','Soft sounds','Short, gentle sounds when you tap.')}
+   ${row('ambient','Ambient sound','Quiet wind, birds, chimes or leaves for each world.')}
+   ${row('calm','Calm motion','Turns off moving animations.')}
+   ${row('pattern','Color letters on vines','Shows R, T, B, Y, G so color is not the only clue.')}
+   <div class="setrow"><div><b>Theme</b><span>Light or dark screen.</span></div><div class="seg">${seg('auto','Auto')}${seg('light','Light')}${seg('dark','Dark')}</div></div>
+  </div></div>`;
 }
 function homeView(){
   const cont=S.gateIdx>0&&S.gateIdx<PLAN.length;
@@ -433,7 +452,7 @@ function homeView(){
    <div class="card"><b>The Guide</b>Has the Guidebook with every rule, but must not see the Explorer's screen.</div>
    <div class="card"><b>Talk it out</b>Ask, describe, say it back, then act. Swap roles after every gate.</div>
   </div>
-  ${settingsRow()}`;
+  <p class="muted" style="margin-top:18px">No timer. No game over. Tap Settings (bottom right) for sound, motion and color options.</p>`;
 }
 function introView(){
   const w=S.gate.plan.world,i=INTRO[w];
@@ -598,7 +617,10 @@ app.addEventListener('click',e=>{
   if(a==='restart'){S.total={};store.set('total',{});store.set('gate',0);S.gateIdx=0;goGate(0);return}
   if(a==='tab'){S.guideTab=b.dataset.k;render();return}
   if(a==='set'){const k=b.dataset.k;S.settings[k]=!S.settings[k];saveSettings();render();return}
-  if(a==='theme'){const o=['auto','light','dark'];S.settings.theme=o[(o.indexOf(S.settings.theme)+1)%3];saveSettings();render();return}
+  if(a==='theme'){S.settings.theme=b.dataset.v;saveSettings();render();return}
+  if(a==='settings-open'){S.settingsOpen=true;render();return}
+  if(a==='settings-close'||(a==='settings-close-bg'&&e.target===b)){S.settingsOpen=false;render();return}
+  if(a==='settings-close-bg')return;
   if(a==='intro-go'){S.view='gate';render();return}
   if(a==='break'){if(S.view==='gate'&&S.moments)addMoment('brk');S.overlay={kind:'break'};render();return}
   if(a==='cancel'){S.overlay=null;render();return}
@@ -635,7 +657,7 @@ app.addEventListener('click',e=>{
     return;
   }
 });
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&S.overlay){S.overlay=null;render()}});
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;if(S.settingsOpen){S.settingsOpen=false;render()}else if(S.overlay){S.overlay=null;render()}});
 
 applySettings();render();
 document.addEventListener('pointerdown',()=>{if(S.settings.ambient){try{audio()}catch(e){}AMB.scene='';updateAmbient()}},{once:true});
