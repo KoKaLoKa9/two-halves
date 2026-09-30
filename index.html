@@ -54,6 +54,9 @@ p{margin:0}
 .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
+.amb{position:fixed;right:calc(16px + env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));z-index:25;display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:6px 16px 6px 12px;border-radius:999px;border:2px solid var(--ink);background:var(--surface);color:var(--ink);font-weight:700;font-size:15px;box-shadow:0 4px 14px rgba(20,28,36,.12)}
+.amb[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+
 /* home */
 .hero{position:relative;overflow:hidden;border-radius:28px;margin-top:8px}
 .hero .halves{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr}
@@ -253,6 +256,68 @@ function tone(f,d=0.18,delay=0){
     o.connect(g);g.connect(actx.destination);o.start(t);o.stop(t+d+0.05);
   }catch(e){}
 }
+/* ---------- ambient environment sound (off by default) ---------- */
+const AMB={master:null,scene:'none',nodes:[],timers:[],buf:null};
+function audio(){actx=actx||new (window.AudioContext||window.webkitAudioContext)();if(actx.state==='suspended')actx.resume();return actx}
+function noiseBuf(){
+  if(AMB.buf)return AMB.buf;
+  const c=actx,len=c.sampleRate*4,b=c.createBuffer(1,len,c.sampleRate),d=b.getChannelData(0);let last=0;
+  for(let i=0;i<len;i++){const w=Math.random()*2-1;last=(last+0.02*w)/1.02;d[i]=last*3.5}
+  return AMB.buf=b;
+}
+function keep(src,g){AMB.nodes.push({src,g})}
+function noiseLayer(type,freq,q,level,lfoRate){
+  const c=actx,t=c.currentTime,src=c.createBufferSource();src.buffer=noiseBuf();src.loop=true;
+  const f=c.createBiquadFilter();f.type=type;f.frequency.value=freq;f.Q.value=q;
+  const g=c.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(level,t+3);
+  const lfo=c.createOscillator(),lg=c.createGain();lfo.frequency.value=lfoRate;lg.gain.value=level*0.5;lfo.connect(lg);lg.connect(g.gain);
+  src.connect(f);f.connect(g);g.connect(AMB.master);src.start();lfo.start();keep(src,g);keep(lfo,lg);
+}
+function chirp(){
+  const c=actx,t0=c.currentTime,n=2+rnd(3),base=2200+rnd(900);
+  for(let i=0;i<n;i++){const t=t0+i*0.16,o=c.createOscillator(),g=c.createGain();
+    o.type='sine';o.frequency.setValueAtTime(base,t);o.frequency.exponentialRampToValueAtTime(base*1.35,t+0.08);
+    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(0.035,t+0.02);g.gain.exponentialRampToValueAtTime(0.0001,t+0.12);
+    o.connect(g);g.connect(AMB.master);o.start(t);o.stop(t+0.15)}
+}
+function chime(){
+  const c=actx,t=c.currentTime,f=pick([1047,1175,1319,1568,1760]);
+  [[1,0.03],[2.01,0.008]].forEach(([m,v])=>{const o=c.createOscillator(),g=c.createGain();o.type='sine';o.frequency.value=f*m;
+    g.gain.setValueAtTime(0.0001,t);g.gain.exponentialRampToValueAtTime(v,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+3);
+    o.connect(g);g.connect(AMB.master);o.start(t);o.stop(t+3.1)});
+}
+function every(fn,min,max){const loop=()=>{fn();AMB.timers.push(setTimeout(loop,(min+Math.random()*(max-min))*1000))};AMB.timers.push(setTimeout(loop,min*600))}
+function breathLayer(){
+  const c=actx,src=c.createBufferSource();src.buffer=noiseBuf();src.loop=true;
+  const f=c.createBiquadFilter();f.type='lowpass';f.frequency.value=700;const g=c.createGain();g.gain.value=0.0001;
+  src.connect(f);f.connect(g);g.connect(AMB.master);src.start();keep(src,g);
+  const cycle=()=>{const t=c.currentTime;g.gain.cancelScheduledValues(t);g.gain.setValueAtTime(0.004,t);g.gain.linearRampToValueAtTime(0.06,t+4);g.gain.linearRampToValueAtTime(0.004,t+8)};
+  cycle();AMB.timers.push(setInterval(cycle,8000));
+}
+function ambStop(){
+  AMB.timers.forEach(id=>{clearTimeout(id);clearInterval(id)});AMB.timers=[];
+  if(!actx)return;const t=actx.currentTime;
+  AMB.nodes.forEach(n=>{try{n.g.gain.cancelScheduledValues(t);n.g.gain.setTargetAtTime(0,t,0.4)}catch(e){}setTimeout(()=>{try{n.src.stop()}catch(e){}},2500)});AMB.nodes=[];
+}
+function sceneFor(){
+  if(S.overlay&&S.overlay.kind==='break')return 'breath';
+  if(S.view==='guide')return 'none';
+  if(S.view==='home'||S.view==='end')return 'garden';
+  const w=(S.gate?S.gate.plan.world:PLAN[S.gateIdx].world);
+  return {'Vine Garden':'garden','Symbol Town':'town','Maze Forest':'forest'}[w]||'garden';
+}
+function updateAmbient(){
+  if(!S.settings.ambient){if(AMB.scene!=='none')ambStop();AMB.scene='none';return}
+  try{audio()}catch(e){return}
+  if(!AMB.master){AMB.master=actx.createGain();AMB.master.connect(actx.destination)}
+  AMB.master.gain.setTargetAtTime(S.view==='gate'&&!S.overlay?0.55:1,actx.currentTime,1);
+  const want=sceneFor();if(want===AMB.scene)return;
+  ambStop();AMB.scene=want;
+  if(want==='garden'){noiseLayer('lowpass',500,0.7,0.06,0.07);every(chirp,5,13)}
+  if(want==='town'){noiseLayer('lowpass',350,0.7,0.04,0.05);every(chime,3,8)}
+  if(want==='forest'){noiseLayer('lowpass',300,0.7,0.035,0.05);noiseLayer('bandpass',2600,0.9,0.025,0.13)}
+  if(want==='breath')breathLayer();
+}
 const sfx={tap:()=>tone(520,.12),ok:()=>{tone(523,.2);tone(784,.3,.14)},soft:()=>tone(330,.25),open:()=>{tone(523,.2);tone(659,.2,.15);tone(784,.35,.3)}};
 
 /* ---------- state ---------- */
@@ -336,14 +401,16 @@ function render(){
   else if(S.view==='guide')h=guideView();
   if(S.overlay)h+=overlayView();
   if(S.toast)h+=`<div class="toast card" role="status" style="padding:18px 22px;border:3px solid var(--p2);display:flex;flex-direction:column;gap:10px"><b style="font-family:var(--display);font-size:22px">${esc(S.toast.title)}</b><div class="muted">${S.toast.body}</div><div class="row" style="justify-content:flex-end"><button class="btn small" data-a="toast-close">Try again</button></div></div>`;
+  h+=`<button class="amb" data-a="set" data-k="ambient" aria-pressed="${!!S.settings.ambient}">${ico(S.settings.ambient?'<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16 8.5a5 5 0 0 1 0 7"/><path d="M19 6a8.5 8.5 0 0 1 0 12"/>':'<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M17 9l5 6M22 9l-5 6"/>',20)}Ambient sound: ${S.settings.ambient?'On':'Off'}</button>`;
   app.innerHTML=h;
   const f=app.querySelector('[data-focus]');if(f)f.focus();
+  updateAmbient();
 }
 
 function settingsRow(){
   const t=(k,label)=>`<button class="toggle" aria-pressed="${!!S.settings[k]}" data-a="set" data-k="${k}">${S.settings[k]?ico(CHECK,18,2.6):''}${label}</button>`;
   const th=S.settings.theme;
-  return `<div class="card settings"><b style="margin-right:6px">Comfort settings</b>${t('sound','Soft sounds')}${t('calm','Calm motion')}${t('pattern','Color letters on vines')}<button class="toggle" data-a="theme">Theme: ${th==='auto'?'Auto':th==='light'?'Light':'Dark'}</button><span class="muted">No timer. No game over.</span></div>`;
+  return `<div class="card settings"><b style="margin-right:6px">Comfort settings</b>${t('sound','Soft sounds')}${t('ambient','Ambient sound')}${t('calm','Calm motion')}${t('pattern','Color letters on vines')}<button class="toggle" data-a="theme">Theme: ${th==='auto'?'Auto':th==='light'?'Light':'Dark'}</button><span class="muted">No timer. No game over.</span></div>`;
 }
 function homeView(){
   const cont=S.gateIdx>0&&S.gateIdx<PLAN.length;
@@ -571,6 +638,7 @@ app.addEventListener('click',e=>{
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&S.overlay){S.overlay=null;render()}});
 
 applySettings();render();
+document.addEventListener('pointerdown',()=>{if(S.settings.ambient){try{audio()}catch(e){}AMB.scene='';updateAmbient()}},{once:true});
 })();
 </script>
 </body>
